@@ -44,17 +44,17 @@ def setup_client():
             if (len(input_split) > 1):
                 isDigit = False;
                 if(input_split[1].isdigit()):
-                    nodenum = input_split[1]
+                    node_num = input_split[1]
                     isDigit = True;
 
                 # Joins a node to the chord
                 if(input_split[0] == "join" and isDigit):
                     newport = port + int(input_split[1])
-                    create_node = Thread(target=setup_node, args = (input_split[1],newport))
+                    create_node = Thread(target=setup_node, args = (node_num,newport))
                     create_node.daemon = True
                     create_node.start()
 
-                    while(clientToNode(input_split[1], int(newport)) == False):
+                    while(clientToNode(node_num, int(newport)) == False):
                         print("Trying to connect to node " + input_split[1])
 
                 # Finds where a key is stored
@@ -103,21 +103,22 @@ def clientToNode(num, port):
 def setup_node(num, port):
     myKeys = []
     myPredecessorKeys = []
-    myFingerTable = {}
-    node_connections = {}
-    connections = []
+    myFingerTable = []
+    node_connections = {}   # who I can connect to
+    connections = []        # who's connected to me
 
-
+    # Create server
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("127.0.0.1", port))
-    s.listen(33)
+    s.listen(32)    # Max of 31 other nodes + client can connect
+
+    # If node 0, get all keys (first node created)
+    myFingerTable = getFingers(num)
 
     if(num == 0):
-        for i in range(256): #ONLY FOR FIRST NODE
+        for i in range(256):
             myKeys.append(i)
-        for j in range(8):
-            myFingerTable[j] = 0
 
     data = {
             'myNum' : num,
@@ -128,9 +129,8 @@ def setup_node(num, port):
             'connections' : connections,
     }
 
-
-
-    connectToNodes(num, node_connections) # connect to other nodes
+    # Join the chord by setting finger table and creating connections
+    joinNodes(data)
 
     if(num!=0):
         getKeys(data)
@@ -141,6 +141,32 @@ def setup_node(num, port):
         connections.append(conn)
         conn_thread = Thread(target = readMessages, args = (conn,data))
         conn_thread.start()
+
+
+def getFingers(num):
+    myFingerTable = [];
+
+    # If node 0, that means only node in chord
+    if (num == 0):
+        for i in range(8):
+            myFingerTable[i] = 0
+        return myFingerTable
+
+    # Else if another node is being added
+    allKeys = sorted(node_sockets.keys())
+    for i in range(8):
+        # Get the ith entry of the finger table
+        value = (num + 2**i) % (2**8)
+        finger = -1
+        # Find the first node > value
+        for j in range(len(allKeys)):
+            if (allKeys[j] > value):
+                myFingerTable[i] = allKeys[j]
+                break
+        # If no node found, set it to 0
+        if (finger == -1):
+            myFingerTable[i] = 0
+    return myFingerTable
 
 
 def getKeys(data):
@@ -190,10 +216,16 @@ def sendMessage(msg, socket):
 
 
 
-def connectToNodes(num, node_connections):
+def joinNodes(data):
+    num = data['num']
+
+    # Check if only node in chord system
+    if (len(node_sockets) == 1):
+
+
     for node in node_sockets:
-        if(int(node)!=num):
-            node_connections[int(node)] = node_sockets[node][1]
+        if(node != num):
+            node_connections[node] = node_sockets[node][1]
 
 def readMessages(conn,data):
     myNum = data['myNum']
@@ -261,3 +293,34 @@ if __name__ == "__main__":
         print("python " + sys.argv[0])
     else:
         main()
+
+
+'''
+Defining a class Node –– a single node in the chord system
+'''
+class Node:
+    count = 0
+
+    def __init__(self, num, port):
+        self.num = num
+        self.myKeys = []
+        self.myPredecessorKeys = []
+        self.myFingerTable = []
+        self.node_connections = {}   # who I can connect to
+        self.connections = []        # who's connected to me
+
+        self.setup_node(port)
+
+
+        Node.count += 1
+
+    def create_server(self, port):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(("127.0.0.1", port))
+        s.listen(32)    # Max of 31 other nodes + client can connect
+        return s
+
+    def setup_node(self, port):
+        self.sock = self.create_server(port)
+
