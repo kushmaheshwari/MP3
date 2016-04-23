@@ -8,16 +8,13 @@ import random
 import signal
 import Queue
 
-
-
+# Dictionary of port and socket for each node
 node_sockets = {}
 
 mutex = Lock()
 
-
-
 # Ran with commands "python client.py"
-def main(argv):
+def main():
     parse_file()
 
     client_thread = Thread(target=setup_client, args = ())
@@ -28,53 +25,65 @@ def main(argv):
         time.sleep(100)
 
 '''
-Sets up the client for the current process, reading input from the command line and unicasting/multicasting it out
+Sets up the client for reading input from the command line
+And sets up node 0 in the server
 '''
 def setup_client():
-
-    create_node = Thread(target=setup_node, args = (0,int(port)))#creating node 0
+    # Create node 0
+    create_node = Thread(target=setup_node, args = (0,port))#creating node 0
     create_node.daemon = True
     create_node.start()
-    while(clientToNode(0, int(port)) == False):
+
+    while(clientToNode(0, port) == False):
         print("Trying to connect to node")
     while True:
         user_input = raw_input('')
+        # Check if a valid command
         if (user_input):
             input_split = user_input.split()
-            if(input_split[1].isdigit):
-                nodenum = input_split[1]
+            if (len(input_split) > 1):
+                isDigit = False;
+                if(input_split[1].isdigit()):
+                    nodenum = input_split[1]
+                    isDigit = True;
 
-            if(input_split[0] == "join" and input_split[1].isdigit()):
-                newport = port + int(input_split[1])
-                create_node = Thread(target=setup_node, args = (input_split[1],newport))
-                create_node.daemon = True
-                create_node.start()
+                # Joins a node to the chord
+                if(input_split[0] == "join" and isDigit):
+                    newport = port + int(input_split[1])
+                    create_node = Thread(target=setup_node, args = (input_split[1],newport))
+                    create_node.daemon = True
+                    create_node.start()
 
-                while(clientToNode(input_split[1], int(newport)) == False):
-                    print("Trying to connect to node")
+                    while(clientToNode(input_split[1], int(newport)) == False):
+                        print("Trying to connect to node " + input_split[1])
 
-            elif(input_split[0] == "find" and input_split[1].isdigit() and input_split[2].isdigit()):
-                keynum = input_split[2]
- 
-            elif(input_split[0] == "crash" and input_split[1].isdigit()):
-                print(" ")
+                # Finds where a key is stored
+                elif(len(input_split) > 2 and input_split[0] == "find" and isDigit and input_split[2].isdigit()):
+                    keynum = int(input_split[2])
 
-            elif(input_split[0] == "show" and input_split[1].isdigit()):
-                socket = node_sockets[int(input_split[1])][1]
-                msg = {
-                    'source': "client",
-                    'message' : "show",
-                }
-                serialized_message = pickle.dumps(msg, -1)
-                socket.sendall(serialized_message)
+                # Clean crashes a node
+                elif(input_split[0] == "crash" and isDigit):
+                    print("Crashing node " + input_split[1])
+
+                # Shows a node's information
+                elif(input_split[0] == "show" and input_split[1].isdigit()):
+                    print("Showing node ")
+                    socket = node_sockets[int(input_split[1])][1]
+                    msg = {
+                        'source': "client",
+                        'message' : "show",
+                    }
+                    serialized_message = pickle.dumps(msg, -1)
+                    socket.sendall(serialized_message)
 
 
-            elif(input_split[0] == "show" and input_split[1] == "all"):
-                print(" ")
 
-            else:
-                print("Invalid Command")
+                # Show all nodes' information
+                elif(input_split[0] == "show" and input_split[1] == "all"):
+                    print("Showing all nodes info")
 
+                else:
+                    print("Invalid Command")
 
 '''
 Client connecting to every node that is created
@@ -85,7 +94,7 @@ def clientToNode(num, port):
     try:
         s.connect(("127.0.0.1", port))
         node_sockets[num] = (port,s)
-        print("Connected to node")
+        print("Connected to node " + str(num))
         return True
     except:
         return False
@@ -122,11 +131,11 @@ def setup_node(num, port):
 
 
     connectToNodes(num, node_connections) # connect to other nodes
-    
+
     if(num!=0):
         getKeys(data)
 
- 
+
     while True:
         conn, addr = s.accept()
         connections.append(conn)
@@ -175,7 +184,7 @@ def getKeys(data):
 
 
 def sendMessage(msg, socket):
-    serialized_message = pickle.dumps(msg, -1) 
+    serialized_message = pickle.dumps(msg, -1)
     socket.sendall(serialized_message)
 
 
@@ -199,7 +208,7 @@ def readMessages(conn,data):
         if(message_obj['source'] == "client"): # message from client
             message = message_obj['message']
 
-            
+
 
             if(message == "show"):
                 print("Node: " + str(myNum))
@@ -232,6 +241,7 @@ def readMessages(conn,data):
 Parses the config file for data about min/max delay and port num
 '''
 def parse_file():
+    global port
     counter = 0
     with open('config.txt') as f:
         for line in f:
@@ -241,13 +251,13 @@ def parse_file():
                 min_delay = int(process_info[0])
                 max_delay = int(process_info[1])
             else:
-                global port
-                port = process_info[0] #FIXXX THISSS
-                port = 2000
+                port = int(process_info[0]) #FIXXX THISSS
+                # port = 2000
             counter += 1
 
+# To run the main function
 if __name__ == "__main__":
     if (len(sys.argv) != 1):
         print("python " + sys.argv[0])
     else:
-        main(sys.argv[1:])
+        main()
