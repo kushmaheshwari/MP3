@@ -56,7 +56,7 @@ def setup_client():
                     create_node.daemon = True
                     create_node.start()
                     while(clientToNode(node_num, int(newport)) == False):
-                        print("Trying to connect to node "  + input_split[1])
+                        print("setup_client: Trying to connect to node "  + input_split[1])
                         time.sleep(1)
 
                 # Finds where a key is stored
@@ -101,6 +101,17 @@ def clientToNode(num, port):
         return False
 
 '''
+Thread function for node to receive connections
+'''
+def accept_connections(node):
+    socket = getattr(node, 'socket')
+
+    while True:
+        conn, addr = socket.accept()
+        conn_thread = Thread(target = readMessages, args = (conn,node))
+        conn_thread.start()
+
+'''
 Thread function to create the node and begin reading messages
 '''
 def setup_node(num, port):
@@ -111,6 +122,10 @@ def setup_node(num, port):
 
     if(num == 0):
         setattr(node,'myPredecessor', 0)
+
+    accept_conn_thread = Thread(target = accept_connections, args = (node,))
+    accept_conn_thread.daemon = True
+    accept_conn_thread.start()
 
     joinChordSystem(node) # sets its finger table
 
@@ -123,12 +138,6 @@ def setup_node(num, port):
 
     #joinNodes(node) # Join the node to the nodes in its finger table now
 
-    s = getattr(node, 'socket')
-    while True:
-        conn, addr = s.accept()
-        #connections.append(conn)
-        conn_thread = Thread(target = readMessages, args = (conn,node))
-        conn_thread.start()
 
 '''
 Server of the node that reads messages sent to the node
@@ -153,96 +162,6 @@ def readMessages(conn,node):
                 sendNodeInfo(node, message_obj['num'], conn)
             elif (message_obj['action'] == 'Joining chord system'):
                 join(node, message_obj['node'], conn)
-
-
-            # if(message_obj['action'] == "Entering chord system"): #This is for Node 0 receiving.New node is joining the system.
-            #     num = message_obj['num'] #id of new node entering
-            #     mySuccessor = getattr(node, 'myFingerTable')[0]
-            #     # mySuccessor = getattr(node, 'mySuccessor')#node 0's successor
-            #     myNum = getattr(node, 'num')#the number 0
-
-            #     if(mySuccessor == 0):#0 is 0s successor. return back 0 as successor to the node that asked to be entered
-            #         msg = {
-            #             'source' : "Node",
-            #             'action' : "Giving successor",
-            #             'successor' : mySuccessor,#0
-            #             'predecessor' : myNum,#0
-            #         }
-            #         # setattr(node,'mySuccessor', num)#setting node0 successor to the new node
-            #         setattr(node,'myPredecessor',num)#setting node0 predecessor to the new node
-            #         sendNode2NodeMessage(msg,int(num))#send message to new node with its info
-            #     elif(num < mySuccessor):
-            #         msg = {
-            #             'source' : "Node",
-            #             'action' : "Giving successor",
-            #             'successor' : mySuccessor,
-            #             'predecessor' : myNum,
-            #         }
-            #         # setattr(node,'mySuccessor', num)#setting node0 successor to the new node
-            #         sendNode2NodeMessage(msg,int(num))#send message to new node with its info
-            #         #somehow have to set mySuccessors predecessor to be the new node(send a message)
-
-            #     else:#new id is not in between 0 and 0s successor
-            #         myFingerTable= getattr(node,'myFingerTable')#0s finger table
-            #         placeholder = 0
-            #         forwardednode = -1
-            #         for i in reversed(range(8)):
-            #             if(myFingerTable[i]!=0):
-            #                 if(myFingerTable[i]<num):#CHECK THIS
-            #                     forwardednode = myFingerTable[i]#this is predecessor of new node being added
-            #                     break;
-            #         if(forwardednode==-1):#node 0s finger table isnt good enough, forward query to last node in finger table
-            #             newport=myFingerTable[7]#port number of node that u r forwarding request too
-            #             msg = {
-            #                 'source' : "Node",
-            #                 'action' : "ForwardedQuery",
-            #                 'num' : num,#number of node trying to join system
-            #                 'forwardedNum': myNum, #number of node that sent forwarded query
-            #             }
-            #             sendNode2NodeMessage(msg,newport)
-
-            #         else:#forwardednode's successor is now the new successor of the entering node
-            #             newport=forwardednode#port of node
-            #             msg = {
-            #                 'source' : "Node",
-            #                 'action' : "PredecessorNewNode",#predecessor of entering node because ur successor is the successor of enterring node
-            #                 'num' : num,#number of node trying to join system
-            #                 'forwardedNum': myNum, #number of node that sent forwarded query
-            #             }
-            #             sendNode2NodeMessage(msg,newport)
-
-
-            # elif(message_obj['action'] == "ForwardedQuery"):#query people in my finger table
-            #     myFingerTable = getattr(node,'myFingerTable')
-            #     num = message_obj['num']
-            #     forwardednode = -1
-            #     for i in reversed(range(8)):
-            #         if(num < myFingerTable[i]): #might have to do another 0 check
-            #             forwardednode = myFingerTable[i]
-
-            #     newport=forwardednode#port of node
-            #     msg = {
-            #         'source' : "Node",
-            #         'action' : "PredecessorNewNode",#predecessor of entering node because ur successor is the successor of enterring node
-            #         'num' : num,#number of node trying to join system
-            #         'forwardedNum': myNum, #number of node that sent forwarded query
-            #     }
-            #     sendNode2NodeMessage(msg,newport)
-
-            # elif(message_obj['action'] == "PredecessorNewNode"):
-            #     num = message_obj['num'] #id of new node
-            #     # mySuccessor = getattr(node, 'mySuccessor')#my successor which is now new nodes successor
-            #     mySuccessor = getattr(node, 'myFingerTable')[0]
-            #     myNum = getattr(node, 'num')#num of node receiving this message
-            #     msg = {
-            #         'source' : "Node",
-            #         'action' : "Giving successor",
-            #         'successor' : mySuccessor,#successor of new node
-            #         'predecessor' : myNum,#you are predecessor of new ndoe
-            #     }
-            #     # setattr(node,'mySuccessor',num)#setting my successor to be the new node entering scheme(SOMEHOW HAve to tell current successor that his predecessor is new node)
-            #     newport = num + 2000
-            #     sendNode2NodeMessage(msg,newport)
 
 '''
 Sets the node passed in the message as its predecessor
@@ -325,10 +244,12 @@ def joinChordSystem(node):
         setattr(node, 'myFingerTable',fingers)
         return
 
+    temp = node
+
     msg = {
         'source' : "Node",
         'action' : "Joining chord system",
-        'node': node,
+        'node': temp,
         'num' : num
     }
 
@@ -347,8 +268,6 @@ def joinChordSystem(node):
 
     updateOthers(node)
 
-    print("Node's socket -- " + getattr(node, 'socket'))
-
     print("joinChordSystem: finished")
     return node
 
@@ -366,11 +285,13 @@ def join(cur_node, node, conn):
     fingers = getattr(node, 'myFingerTable')
     print("join: " + str(fingers))
 
+    temp = node
+
     msg = {
         'source': 'Node',
         'action': 'Joined node to chord',
         'num': getattr(cur_node, 'num'),
-        'node': node
+        'node': temp
     }
 
     serialized_message = pickle.dumps(msg, -1)
@@ -474,18 +395,20 @@ If node s is the ith finger table entry of node n, update n's finger table with 
 def updateFingerTable(node, s, i):
     num = getattr(node, 'num')
     myFingerTable = getattr(node, 'myFingerTable')
+    my_finger_temp = myFingerTable[i]
     if (myFingerTable[i] <= num):
-        myFingerTable[i] += 256
+        my_finger_temp += 256
 
     time.sleep(1)
 
-    print("updateFingerTable: " + str(num) + " <= " + str(s) + " <= " + str(myFingerTable[i]))
-    if (num <= s <= myFingerTable[i]):
+    print("updateFingerTable: " + str(num) + " <= " + str(s) + " <= " + str(my_finger_temp))
+    if (num < s < my_finger_temp):
         myFingerTable[i] = s
         setattr(node, 'myFingerTable', myFingerTable)
 
-        p = findPredecessor(node, num)
-        print("Found predecessor of " + str(num) + ' = ' + str(getattr(p, 'num')))
+        # p = findPredecessor(node, num)
+        p = requestNodeInfo(node, getattr(node, 'myPredecessor'))
+        # print("Found predecessor of " + str(num) + ' = ' + str(getattr(p, 'num')))
 
         sendUpdateFingerMessage(node, p, s, i)
 
@@ -570,10 +493,11 @@ def requestNodeInfo(node, value):
 Sends the current node info back to the requesting node
 '''
 def sendNodeInfo(node, num, conn):
+    temp = node
     msg = {
         'source': 'Node',
         'action': 'Responding node information',
-        'node': node
+        'node': temp
     }
 
     removeSocketsFromMessage(msg)
@@ -605,14 +529,15 @@ def sendNode2NodeMessage(node, msg, num):
         port = num + 2000
         try:
             print('sendNode2NodeMessage: ' + str(getattr(node, 'num')) + ' making connection to ' + str(num))
+            print('sendNode2NodeMessage: connecting at port ' + str(port))
             node_connections[num].connect(("127.0.0.1", port))
             setattr(node, 'node_connections', node_connections)
 
             if ('node' in msg):
                 removeSocketsFromMessage(msg)
 
-        except:
-            print("Fuck my life")
+        except Exception, e:
+            print("sendNode2NodeMessage: " + str(e))
 
     serialized_message = pickle.dumps(msg, -1)
     node_connections[num].sendall(serialized_message)
