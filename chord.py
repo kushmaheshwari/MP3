@@ -7,7 +7,7 @@ import datetime
 import time
 import random
 import signal
-import Queue
+import Queue as Q
 import copy
 
 # Dictionary of port and socket for each node
@@ -75,7 +75,7 @@ def setup_client():
                     socket.sendall(serialized_message)
 
                     # print("Client waiting for response")
-                    data = socket.recv(1024)
+                    data = socket.recv(4096)
                     # print("Client received response")
                     response = pickle.loads(data)
 
@@ -89,7 +89,6 @@ def setup_client():
 
                 # Shows a node's information
                 elif(input_split[0] == "show" and isDigit):
-                    # print("Showing node")
                     socket = client_connections.get(node_num)
                     if (socket is None):
                         print(input_split[1] + ' does not exist or has crashed')
@@ -101,14 +100,32 @@ def setup_client():
                         serialized_message = pickle.dumps(msg, -1)
                         socket.sendall(serialized_message)
 
-                        data = socket.recv(1024)
+                        data = socket.recv(4096)
                         response = pickle.loads(data)
 
                         clientPrintShow(response)
 
                 # Show all nodes' information
-                elif(input_split[0] == "show" and input_split[1] == "all"):
-                    print("Showing all nodes info")
+                elif (input_split[0] == "show" and input_split[1] == "all"):
+                    q = Q.PriorityQueue()
+
+                    # Send and receive show request to all nodes
+                    msg = {
+                        'source': "client",
+                        'message': user_input
+                    }
+                    for socket in client_connections:
+                        serialized_message = pickle.dumps(msg, -1)
+                        client_connections[socket].sendall(serialized_message)
+
+                        data = client_connections[socket].recv(4096)
+                        response = pickle.loads(data)
+
+                        q.put( (response['num'], response) )
+
+                    # Once received all shows, print out in order of priority queue
+                    while (not q.empty()):
+                        clientPrintShow(q.get()[1])
                 else:
                     invalid_command = True
             else:
@@ -124,7 +141,7 @@ def clientPrintShow(msg):
     print('====== Showing Node ' + str(msg['num']) + ' ======')
     print('Finger table: ' + str(msg['myFingerTable']))
     print('Keys: ' + str(msg['myKeys']))
-    print('PredecessorKeys: ' + str(msg['myPredecessorKeys']))
+    # print('PredecessorKeys: ' + str(msg['myPredecessorKeys']))
     print('Predecessor: ' + str(msg['myPredecessor']))
     print('============================')
 
@@ -160,7 +177,7 @@ Depending on the action of the message, executes commands
 def readMessages(conn,node):
 
     while True:
-        dump = conn.recv(1024)
+        dump = conn.recv(4096)
         if (not dump):
             break
 
@@ -174,10 +191,7 @@ def readMessages(conn,node):
             message = message_obj['message'].split()
             # Show message
             if (message[0] == "show"):
-                if (message[1] == "all"):
-                    showAll(node, conn)
-                else:
-                    showMine(node, conn)
+                showMine(node)
             # Find key
             elif (message_obj['action'] == 'Find key'):#node that recieves request to find a key
                 findNodeRequest(node,message_obj,conn)
@@ -201,7 +215,7 @@ def readMessages(conn,node):
                 # print("readMessages: " + str(getattr(node, 'num')) + " received a join request")
                 join(node, message_obj['node'], conn)
             elif(message_obj['action'] == 'Find Key'):
-                findNode2(node,message_obj)
+                findNodeForwardRequest(node,message_obj)
             elif(message_obj['action'] == 'Found Node with Key'):#send to client
                 msg = {
                     'source': "Node",
@@ -218,20 +232,18 @@ def readMessages(conn,node):
             elif(message_obj['action'] == 'Take Keys'):
                 takeKeys(node,message_obj, conn)
             elif(message_obj['action'] == 'Give Predecessor Keys'):
-                updatePredecessorKeys(node,message_obj)
+                setattr(node, 'myPredecessorKeys', message_obj['predecessorKeys'])
 
         # print("readMessages: Node " + str(getattr(node, 'num')) + " has handled the request")
 
 
 '''
-Node receives a find node request from the client
 '''
-def findNodeRequest(node,message_obj,conn): #this is for the first node
+def checkCurrentKeys(node, message_obj, conn):
     keynum = message_obj['keynum']
-    myKeys = getattr(node,'myKeys')
+    myKeys = getattr(node, 'myKeys')
 
-    found = False
-
+    # Check my keys
     for i in range(len(myKeys)):
         if(myKeys[i] == keynum): #found key in this node
             print("Found key at current node!")
@@ -243,57 +255,40 @@ def findNodeRequest(node,message_obj,conn): #this is for the first node
             }
             serialized_message = pickle.dumps(msg, -1)
             conn.sendall(serialized_message)#send back to client(need to add clients socket)
-            found = True
-            break
+            return True
 
     # Optimization to check predecessor's keys for keynum
-    if (not found):
-        predKeys = getattr(node, 'myPredecessorKeys')
-        for i in range(len(predKeys)):
-            if (predKeys[i] == keynum):
-                print("Found key at predecessor node!")
-                msg = {
-                    'source'  : "Node",
-                    'action'  : "Found Node with Key",
-                    'keynum': keynum,
-                    'node_num': getattr(node, 'myPredecessor')
-                }
-                serialized_message = pickle.dumps(msg, -1)
-                conn.sendall(serialized_message)#send back to client(need to add clients socket)
-                found = True
-                break
+    predKeys = getattr(node, 'myPredecessorKeys')
+    for i in range(len(predKeys)):
+        if (predKeys[i] == keynum):
+            print("Found key at predecessor node!")
+            msg = {
+                'source'  : "Node",
+                'action'  : "Found Node with Key",
+                'keynum': keynum,
+                'node_num': getattr(node, 'myPredecessor')
+            }
+            serialized_message = pickle.dumps(msg, -1)
+            conn.sendall(serialized_message)#send back to client(need to add clients socket)
+            return True
+
+'''
+Node receives a find node request from the client
+'''
+def findNodeRequest(node,message_obj,conn): #this is for the first node
+    keynum = message_obj['keynum']
+    myKeys = getattr(node,'myKeys')
+
+    # Check current keys (including predecessor back ups)
+    found = checkCurrentKeys(node, message_obj, conn)
 
     # Else ask other nodes
     if (not found):
-        # forwardFindRequest(node, message_obj)
-
-        myFingerTable = getattr(node, 'myFingerTable')
-        queryNode = 999
-        for i in range(len(myFingerTable)):#will be a sorted finger table
-            if (keynum <= myFingerTable[i] and myFingerTable[i] < queryNode):#might have to do stronger check
-                print(str(keynum) + " is less than " + str(myFingerTable[i]))
-                queryNode = myFingerTable[i]#send find to this node
-            else:
-                break
-        if(queryNode == 999):
-            queryNode = myFingerTable[0]#set to successor
-
-        msg = {
-            'source' : "Node",
-            'action' : "Find Key",
-            'keynum' : message_obj['keynum'],
-            'sourcenode': getattr(node,'num'),
-            'nodes_visited': 1
-        }
-
-        sendNode2NodeMessage(node, msg, queryNode)#sends message out to other node
-        print("Forwarding find to " + str(queryNode))
+        forwardFindRequest(node, message_obj)
 
 
-def findNode2(node,message_obj):#this is for every other node
+def findNodeForwardRequest(node,message_obj):#this is for every other node
     keynum = message_obj['keynum']
-
-    found = False
 
     # Check if already visited multiple nodes (i.e. key does not exist)
     if (message_obj['nodes_visited'] > 20):
@@ -305,6 +300,8 @@ def findNode2(node,message_obj):#this is for every other node
         }
         sendNode2NodeMessage(node, msg, message_obj['sourcenode'])
     else:
+        found = False
+
         myKeys = getattr(node,'myKeys')
         for i in range(len(myKeys)):
             if(myKeys[i]==keynum):#found key in this node
@@ -319,60 +316,40 @@ def findNode2(node,message_obj):#this is for every other node
                 break
 
         if (not found):
-            # forwardFindRequest(node, message_obj)
-
-            myFingerTable = getattr(node,'myFingerTable')
-            queryNode = -1
-            for i in range(len(myFingerTable)):#will be a sorted finger table
-                if(keynum <= myFingerTable[i]):#might have to do stronger check
-                    queryNode = myFingerTable[i]#send find to this node
-            if(queryNode==-1):
-                queryNode = myFingerTable[0]
-            msg = {
-                'source' : "Node",
-                'action' : "Find Key",
-                'keynum' : message_obj['keynum'],
-                'sourcenode': message_obj['sourcenode'],
-                'nodes_visited': message_obj['nodes_visited'] + 1
-            }
-            sendNode2NodeMessage(node,msg,queryNode)#send to query node
-            print("Forwarding find to " + str(queryNode))
-
-# '''
-# Forwards a find request to the next node
-# '''
-# def forwardFindRequest(node, message_obj):
-#     keynum = message_obj['keynum']
-
-#     myFingerTable = getattr(node,'myFingerTable')
-#     queryNode = -1
-#     for i in range(len(myFingerTable)):#will be a sorted finger table
-#         if(myFingerTable[i]<=keynum):#might have to do stronger check
-#             queryNode=myFingerTable[i]#send find to this node
-#     if(queryNode==-1):
-#         queryNode==myFingerTable[0]
-#     msg = {
-#         'source' : "Node",
-#         'action' : "Find Key",
-#         'keynum' : message_obj['keynum'],
-#         'sourcenode': message_obj['sourcenode']
-#     }
-#     sendNode2NodeMessage(node,msg,queryNode)#send to query node
-#     print("Forwarding find to " + str(queryNode))
+            forwardFindRequest(node, message_obj)
 
 '''
-Sets the keys of the specified node
+Forwards a find request to the next node
 '''
-def setKeys(node):
-    num = getattr(node, 'num')
+def forwardFindRequest(node, message_obj):
+    keynum = message_obj['keynum']
 
-    keys = []
-    if (num == 0): # set all keys 0-255 for node 0
-        for i in range(256):
-            keys.append(i)
-        setattr(node,'myKeys',keys)
-        return
+    myFingerTable = getattr(node, 'myFingerTable')
+    queryNode = 999
+    for i in range(len(myFingerTable)):#will be a sorted finger table
+        if (keynum <= myFingerTable[i] and myFingerTable[i] < queryNode):#might have to do stronger check
+            print(str(keynum) + " is less than " + str(myFingerTable[i]))
+            queryNode = myFingerTable[i]#send find to this node
+        else:
+            break
+    if(queryNode == 999):
+        queryNode = myFingerTable[0]#set to successor
 
+    if ('nodes_visited' in message_obj):
+        nodes_visited = message_obj['nodes_visited'] + 1
+    else:
+        nodes_visited = 1
+        message_obj['sourcenode'] = getattr(node, 'num')
+
+    msg = {
+        'source' : "Node",
+        'action' : "Find Key",
+        'keynum' : message_obj['keynum'],
+        'sourcenode': message_obj['sourcenode'],
+        'nodes_visited': nodes_visited
+    }
+    sendNode2NodeMessage(node, msg, queryNode)#send to query node
+    print("Forwarding find to " + str(queryNode))
 
 
 ''' ====== Implementing show ====== '''
@@ -380,7 +357,7 @@ def setKeys(node):
 '''
 Show all information about the node and send it back to the client
 '''
-def showMine(node, conn):
+def showMine(node):
     msg = {
         'num': getattr(node, 'num'),
         'myFingerTable': getattr(node, 'myFingerTable'),
@@ -390,7 +367,9 @@ def showMine(node, conn):
     }
 
     serialized_message = pickle.dumps(msg, -1)
-    conn.sendall(serialized_message)
+
+    client_socket = getattr(node, 'client_socket')
+    client_socket.sendall(serialized_message)
 
 
 ''' ====== Implementing join ====== '''
@@ -411,20 +390,10 @@ def setup_node(num, port):
     accept_conn_thread.daemon = True
     accept_conn_thread.start()
 
-    # print("Node " + str(num) + " is entering joinChordSystem")
-
     joinChordSystem(node) # sets its finger table
-
-    # print("Fingers are now: " + str(getattr(node, 'myFingerTable')))
-
-    # print("joinChordSystem: Node " + str(num) + " has completed join")
 
     if (node is None):
         print("Node is null after joinChordSystem")
-
-    # setKeys(node) # sets its keys
-
-    #joinNodes(node) # Join the node to the nodes in its finger table now
 
 
 '''
@@ -439,8 +408,9 @@ def joinChordSystem(node):
     num = getattr(node, 'num')
     fingers = []
     keys = []
+
+    # If node 0, set all keys and fingers and return
     if (num == 0):
-        # print("THIS IS NODE 0")
         for i in range(8):
             fingers.append(0)
         setattr(node, 'myFingerTable',fingers)
@@ -459,33 +429,30 @@ def joinChordSystem(node):
         'num' : num
     }
 
-    # print("joinChordSystem: Sending message to node 0 requesting access")
     sendNode2NodeMessage(node, msg, 0) #send message to node 0 that you want to be entered into the system
-    # print("joinChordSystem: Sent message to node 0, waiting for response now")
 
     # Wait for response
     node_connections = getattr(node, 'node_connections')
-    data = node_connections[0].recv(1024)
+    data = node_connections[0].recv(4096)
     response = pickle.loads(data)
     response_node = response['node']
-
-    # print("joinChordSystem: Received response from node 0")
-
-    # print("Fingers are : " + str(getattr(response_node, 'myFingerTable')))
 
     setattr(node, 'myFingerTable', getattr(response_node, 'myFingerTable'))
     setattr(node, 'myPredecessor', getattr(response_node, 'myPredecessor'))
 
-    # print("joinChordSystem: Node " + str(num) + ": Before updating others")
+    print('Fingers: ' + str(getattr(node, 'myFingerTable')))
+    print('Predecessor: ' + str(getattr(node, 'myPredecessor')))
+
     updateOthers(node)
     moveKeys(node)
-    # print("joinChordSystem: Node " + str(num) + ": After updating others")
 
-    # print("joinChordSystem: Node " + str(num) + ":Join complete")
     print("Ack")
-
     return node
 
+''' ========= Implementing moving keys =========== '''
+
+'''
+'''
 def moveKeys(node):# move keys in (predecessor,node] from successor
     myPredecessor = getattr(node,'myPredecessor')#
     msg = {
@@ -499,7 +466,7 @@ def moveKeys(node):# move keys in (predecessor,node] from successor
 
     sendNode2NodeMessage(node, msg, successor)#sends message to successor node asking to take keys
     node_connections = getattr(node, 'node_connections')
-    data = node_connections[successor].recv(1024)
+    data = node_connections[successor].recv(4096)
     response = pickle.loads(data)#should get the keys back
     keys = response['keys']
     setattr(node,'myKeys',keys)#set your keys to the incoming keys
@@ -541,11 +508,6 @@ def takeKeys(node,message_obj, conn):
 
     serialized_message = pickle.dumps(msg, -1)
     conn.sendall(serialized_message)
-    # sendNode2NodeMessage(node, msg, int(num))#sends message back to predecessor that asked for keys
-
-def updatePredecessorKeys(node,message_obj):
-    setattr(node,'myPredecessorKeys',message_obj['predecessorKeys'])
-
 
 '''
 node joins the network
@@ -649,7 +611,7 @@ def updateOthers(node):
     for i in range(8):
         # Find the last node whose ith finger might be node
         predecessorValue = (num - (2**i)) % (2**8)
-        # print(str(num) + "'s updateOthers: Before finding predecessorNode")
+        # print(str(num) + "'s updateOthers: Before finding predecessorNode of " + str(predecessorValue))
         predecessorNode = findPredecessor(node, predecessorValue)
         # print(str(num) + "'s updateOthers: Found " + str(i) + "th predecessor node: " + str(getattr(predecessorNode, 'num')) )
 
@@ -681,13 +643,12 @@ def updateFingerTable(node, s, i):
     num = getattr(node, 'num')
     myFingerTable = getattr(node, 'myFingerTable')
     my_finger_temp = myFingerTable[i]
-    if (myFingerTable[i] <= num):
-        my_finger_temp += 256
-
-    # time.sleep(1)
+    # if (myFingerTable[i] <= num):
+    #     my_finger_temp += 256
 
     # print(str(num) + " received updateFingerTable: " + str(num) + " < " + str(s) + " < " + str(my_finger_temp))
-    if ( num < s < my_finger_temp):
+    # if ( num < s < my_finger_temp):
+    if (checkInterval(num, s, my_finger_temp, False, False)):
         # print(str(num) + " updateFingerTable: Setting " + str(i) + " to " + str(s))
         myFingerTable[i] = s
         setattr(node, 'myFingerTable', myFingerTable)
@@ -702,7 +663,6 @@ def updateFingerTable(node, s, i):
 Returns the information of the successor of value
 '''
 def findSuccessor(node, value):
-    # print("findSuccessor: " + str(value))
     predecessor = findPredecessor(node, value)
     successor = requestNodeInfo(node, getattr(predecessor, 'myFingerTable')[0])
     return successor
@@ -715,12 +675,8 @@ def findPredecessor(node, value):
     predecessorNode = node
     num = getattr(predecessorNode, 'num')
     successor = getattr(predecessorNode, 'myFingerTable')[0]
-    # if (successor == 0):    # 0 = 256 in a chord
-        # successor = 256
 
-    # print("findPredecessor: Looking for closest preceding finger")
     # print(str(num) + "'s findPredecessor: " + str(num) + " < " + str(value) + " <= " + str(successor))
-    # while (not (num < value <= successor)):
     while (not checkInterval(num, value, successor, False, True)):
         # print(str(num) + "'s findPredecessor: " + str(num) + " < " + str(value) + " <= " + str(successor))
         predecessorNode = getClosestPrecedingFinger(node, predecessorNode, value)
@@ -730,16 +686,12 @@ def findPredecessor(node, value):
             break
         num = getattr(predecessorNode, 'num')
         successor = getattr(predecessorNode, 'myFingerTable')[0]
-        # if (successor == 0):
-            # successor = 256
-        # print(str(num) + "'s findPredecessor: " + str(num) + " < " + str(value) + " <= " + str(successor))
-        # time.sleep(0.2)
-    # print(str(num) + "'s findPredecessor: Found closest preceding finger with num " + str(num))
-    # sys.stdout.flush()
+
     return predecessorNode
 
 
 def checkInterval(beg,num,end,beginclusive,endinclusive):
+    # print("checkInterval: " + str(beg) + ", " + str(num) + ", " + str(end) + " - " + str(beginclusive) + " " + str(endinclusive))
     if(beginclusive and endinclusive):
         if(beg <= end):
             return (beg <= num <= end)
@@ -750,41 +702,29 @@ def checkInterval(beg,num,end,beginclusive,endinclusive):
             return (beg <= num < end)
         else:
             return (beg <= num or num < end)
-            # return (num < end and num >= beg)
     elif(endinclusive and (not beginclusive)):
         if(beg <= end):
             return (beg < num <= end)
         else:
             return (beg < num or num <= end)
-            # return (num <= end and num >= beg)
     else:
         if(beg <= end):
             return (beg < num < end)
         else:
             return (beg < num or num < end)
-            # return (num < end and num > beg)
 
 '''
 Returns the closest finger preceding the node of value
 '''
 def getClosestPrecedingFinger(cur_node, node, value):
     num = getattr(node, 'num')
-    # print("num = " + str(num) + ", value = " + str(value))
 
     myFingerTable = getattr(node, 'myFingerTable')
-    # print("getClosestPrecedingFinger: " + str(myFingerTable))
     for i in reversed(range(8)):
-        # print(str(num) + "'s getClosestPrecedingFinger: " + str(num) + " < " + str(myFingerTable[i]) + " < " + str(value))
-        # if (num < myFingerTable[i] < value):
         if (checkInterval(num, myFingerTable[i], value, False, False)):
+            # print(str(num) + " found getClosestPrecedingFinger: " + str(num) + " < " + str(myFingerTable[i]) + " < " + str(value))
             # print(str(num) + "'s getClosestPrecedingFinger: Found " + str(myFingerTable[i]))
             return requestNodeInfo(cur_node, myFingerTable[i])
-    # else:
-    #     for i in reversed(range(8)):
-    #         print(str(num) + "'s getClosestPrecedingFinger: " + str(value) + " < " + str(myFingerTable[i]) + " < " + str(num))
-    #         if (not (value <= myFingerTable[i] <= num)):
-    #             print(str(num) + "'s getClosestPrecedingFinger: Found " + str(myFingerTable[i]))
-    #             return requestNodeInfo(node, myFingerTable[i])
 
     return node
 
@@ -808,7 +748,11 @@ def requestNodeInfo(node, value):
 
         node_connections = getattr(node, 'node_connections')
 
-        data = node_connections[value].recv(1024);
+        data = node_connections[value].recv(4096);
+        # print(data)
+
+        # if (not data):
+            # print("WHY IS DATA NONE")
         response = pickle.loads(data)
 
         # print(str(myNum) + "'s requestNodeInfo: " + str(myNum) + ' received info from ' + str(value))
@@ -831,7 +775,11 @@ def sendNodeInfo(node, num, conn):
 
     msg = removeSocketsFromMessage(msg)
 
+    # print(msg)
+
     serialized_message = pickle.dumps(msg, -1)
+
+    # print(serialized_message)
     conn.sendall(serialized_message)
 
     # sendNode2NodeMessage(node, msg, num)
@@ -847,6 +795,8 @@ def removeSocketsFromMessage(msg):
             del msg_no_sockets['node'].node_connections
         if (hasattr(msg_no_sockets['node'], 'socket')):
             del msg_no_sockets['node'].socket
+        if (hasattr(msg_no_sockets['node'], 'client_socket')):
+            del msg_no_sockets['node'].client_socket
     # setattr(msg['node'], 'node_connections', None)
     # setattr(msg['node'], 'socket', None)
     return msg_no_sockets
@@ -911,11 +861,6 @@ class Node:
 
     def setup_node(self, port):
         self.socket = self.create_server(port)
-
-
-
-
-
 
 
 '''
