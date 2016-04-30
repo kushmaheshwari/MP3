@@ -314,7 +314,7 @@ def readMessages(conn,node):
         else: # message from node
 
             # Delay message
-            time.sleep(random.uniform(min_delay, max_delay))
+            # time.sleep(random.uniform(min_delay, max_delay))
 
             # print("readMessages: " + str(getattr(node, 'num')) + " received a message: " + message_obj['action'])
             # Set your predecessor to node
@@ -357,8 +357,8 @@ def readMessages(conn,node):
 
                     try:
                         node_socket.sendall(serialized_message)
-                    except Exception, e:
-                        print(e)
+                    except:
+                        pass
                 else:
                     client_socket = getattr(node, 'client_socket')
                     client_socket.sendall(serialized_message)
