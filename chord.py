@@ -248,7 +248,7 @@ def readMessages(conn,node):
             elif(message_obj['action'] == 'Find Key'):
                 findNode2(node,message_obj)
             elif(message_obj['action'] == 'Found Node with Key'):#send to client
-                print("FOUND THE NODE WITH KEY: " + str(message_obj))
+                # print("FOUND THE NODE WITH KEY: " + str(message_obj))
                 msg = {
                     'source': "Node",
                     'action': "Found Key",
@@ -263,7 +263,7 @@ def readMessages(conn,node):
 
                 if ('predecessor' in msg):
                     node_socket = getattr(node, 'node_connections')[num]
-                    print('Sending to SOCKET OF ' + str(num))
+                    # print('Sending to SOCKET OF ' + str(num))
                     node_socket.sendall(serialized_message)
                 else:
                     client_socket = getattr(node, 'client_socket')
@@ -348,7 +348,7 @@ def findNodeRequest(node,message_obj,conn): #this is for the first node
                 'node_num': getattr(node,'num')
             }
 
-            print('findNodeRequest: Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
+            # print('findNodeRequest: Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
 
             if ('predecessor' in message_obj):
                 msg['predecessor'] = getattr(node, 'myPredecessor')
@@ -385,7 +385,7 @@ def findNodeRequest(node,message_obj,conn): #this is for the first node
             msg['predecessor'] = message_obj['predecessor']
 
         sendNode2NodeMessage(node, msg, queryNode)#sends message out to other node
-        print("findNodeRequest (" + str(getattr(node, 'num')) + "): Forwarding find to " + str(queryNode))
+        # print("findNodeRequest (" + str(getattr(node, 'num')) + "): Forwarding find to " + str(queryNode))
 
 
 def findNode2(node,message_obj):#this is for every other node
@@ -402,7 +402,7 @@ def findNode2(node,message_obj):#this is for every other node
             'node_num': -1
         }
 
-        print('Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
+        # print('Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
 
         if ('predecessor' in message_obj):
             msg['predecessor'] = message_obj['predecessor']
@@ -421,9 +421,9 @@ def findNode2(node,message_obj):#this is for every other node
                 if ('predecessor' in message_obj):
                     msg['predecessor'] = getattr(node, 'myPredecessor')
 
-                print('findNode2 (' + str(getattr(node, 'num')) + '): Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
+                # print('findNode2 (' + str(getattr(node, 'num')) + '): Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
 
-                print('findNode2 (' + str(getattr(node, 'num')) + '): Sending key to ') + str(message_obj['sourcenode'])
+                # print('findNode2 (' + str(getattr(node, 'num')) + '): Sending key to ') + str(message_obj['sourcenode'])
                 sendNode2NodeMessage(node, msg, message_obj['sourcenode'])#send message back to original noce
                 found = True
                 break
@@ -453,7 +453,7 @@ def findNode2(node,message_obj):#this is for every other node
                 msg['predecessor'] = message_obj['predecessor']
 
             sendNode2NodeMessage(node,msg,queryNode)#send to query node
-            print('findNode2 (' + str(getattr(node, 'num')) + "): Forwarding find to " + str(queryNode))
+            # print('findNode2 (' + str(getattr(node, 'num')) + "): Forwarding find to " + str(queryNode))
 
 
 ''' ====== Implementing show ====== '''
@@ -576,6 +576,8 @@ def joinChordSystem(node):
             'num': getattr(node, 'num')
     }
 
+    time.sleep(1)
+
     client_socket = getattr(node, 'client_socket')
     serialized_message = pickle.dumps(msg, -1)
     client_socket.sendall(serialized_message)
@@ -677,7 +679,7 @@ def join(cur_node, node, conn):
     initializeFingerTable(cur_node, node)
 
     fingers = getattr(node, 'myFingerTable')
-    print("join: After initializing finger table: " + str(fingers))
+    # print("join: After initializing finger table: " + str(fingers))
 
     temp = node
 
@@ -742,7 +744,7 @@ def initializeFingerTable(cur_node, node):
     setattr(cur_node, 'node_connections', node_connections)
 
     nodeFingerTable[0] = response['node_num']
-    print("initializeFingerTable: Found successor = " + str(nodeFingerTable[0]))
+    # print("initializeFingerTable: Found successor = " + str(nodeFingerTable[0]))
 
     # predecessor = successor.predecessor
     # print('Returned predecessor is HOLLLALALALA: ' + str(response))
