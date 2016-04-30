@@ -81,8 +81,8 @@ def setup_client():
         time.sleep(0.5)
     while True:
         invalid_command = False
-        # user_input = raw_input('')
-        user_input = joins[count]
+        user_input = raw_input('')
+        # user_input = joins[count]
         # print(user_input)
         # Check if a valid command
         if (user_input):
