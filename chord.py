@@ -221,6 +221,10 @@ def readMessages(conn,node):
                 showMine(node, conn)
             # Find key
             elif (message_obj['action'] == 'Find key'):#node that recieves request to find a key
+                if ('predecessor' in message_obj):
+                    node_connections = getattr(node, 'node_connections')
+                    node_connections[num] = conn
+                    setattr(node, 'node_connections', node_connections)
                 findNodeRequest(node,message_obj,conn)
             # Crash current node
             elif (message[0] == "crash"):
@@ -233,17 +237,6 @@ def readMessages(conn,node):
                 setattr(node, 'myPredecessor', message_obj['num'])
             # Update your finger table
             elif (message_obj['action'] == 'Update finger table'):
-                # if (message_obj['value'] == num):
-                #     msg = {
-                #         'source': 'Node',
-                #         'action': 'Completed join',
-                #         'num': num
-                #     }
-                #     # print(str(num) + ' responding to client: ' + str(msg))
-                #     client_socket = getattr(node, 'client_socket')
-                #     serialized_message = pickle.dumps(msg, -1)
-                #     client_socket.sendall(serialized_message)
-                # else:
                 updateFingerTable(node, message_obj)
             # Node requesting my info
             elif (message_obj['action'] == 'Requesting node info'):
@@ -255,6 +248,7 @@ def readMessages(conn,node):
             elif(message_obj['action'] == 'Find Key'):
                 findNode2(node,message_obj)
             elif(message_obj['action'] == 'Found Node with Key'):#send to client
+                print("FOUND THE NODE WITH KEY: " + str(message_obj))
                 msg = {
                     'source': "Node",
                     'action': "Found Key",
@@ -262,12 +256,18 @@ def readMessages(conn,node):
                     'node_num': message_obj['node_num']
                 }
                 if ('predecessor' in message_obj):
-                    msg['predecessor'] = message_obj['predecessor']
+                    msg['predecessor'] = message_obj[ 'predecessor']
 
                 # Send information back to client
                 serialized_message = pickle.dumps(msg, -1)
-                client_socket = getattr(node, 'client_socket')
-                client_socket.sendall(serialized_message)
+
+                if ('predecessor' in msg):
+                    node_socket = getattr(node, 'node_connections')[num]
+                    print('Sending to SOCKET OF ' + str(num))
+                    node_socket.sendall(serialized_message)
+                else:
+                    client_socket = getattr(node, 'client_socket')
+                    client_socket.sendall(serialized_message)
 
             elif(message_obj['action'] == 'Take Keys'):
                 takeKeys(node,message_obj, conn)
@@ -278,7 +278,7 @@ def readMessages(conn,node):
             elif (message_obj['action'] == 'Get Successor'):
                 returnSuccessor(node, conn, message_obj)
             elif (message_obj['action'] == 'Set super successor'):
-                setSuperSuccessor(node, message_obj['source_num'])
+                setattr(node, 'superSuccessor', message_obj['successor'])
 
         # print("readMessages (" + str(getattr(node, 'num')) + ") has handled the request: " + str(message_obj))
 
@@ -287,37 +287,27 @@ Returns the successor information to the requesting node
 '''
 def returnSuccessor(node, conn, message_obj):
     successor = getattr(node, 'myFingerTable')[0]
-    source_num = message_obj['source_num']
 
     msg = {
         'source': 'Node',
         'action': 'Returning successor',
         'successor': successor,
-        'source_num': message_obj['source_num']
     }
 
     serialized_message = pickle.dumps(msg, -1)
     conn.sendall(serialized_message)
 
-    num = getattr(node, 'num')
-
-    # print(str(num) + ' received setSuperSuccessor request from ' + str(source_num))
-
-    # Setting its own super successor
-    if (num != source_num):
-        setSuperSuccessor(node, message_obj['source_num'])
-
 '''
 Sets the super successor of the node by requesting the successor's successor
 '''
-def setSuperSuccessor(node, source_num):#send message to my new successor asking for his successor so i can set it to my new supersuccessor
+def setSuperSuccessor(node):#send message to my new successor asking for his successor so i can set it to my new supersuccessor
     successor = getattr(node,'myFingerTable')[0]
     msg = {
         'source': 'Node',
         'action': 'Get Successor',
-        'source_num': source_num
     }
-    sendNode2NodeMessage(node,msg,successor)
+
+    sendNode2NodeMessage(node, msg, successor)
 
     node_connections = getattr(node, 'node_connections')
 
@@ -327,6 +317,17 @@ def setSuperSuccessor(node, source_num):#send message to my new successor asking
     # print('setSuperSuccessor: (' + str(getattr(node, 'num')) + ') request to ' + str(successor) + ': ' + str(response))
 
     setattr(node, 'superSuccessor', response['successor'])
+
+
+def setPredecessorSuperSuccessor(node): #send message to my predecessor with my new successor so it can update its supersuccessor
+    successor = getattr(node,'myFingerTable')[0]
+    predecessor = getattr(node,'myPredecessor')
+    msg = {
+        'source': "Node",
+        'action': 'Set super successor',
+        'successor': successor
+    }
+    sendNode2NodeMessage(node, msg, predecessor)
 
 '''
 Node receives a find node request from the client
@@ -346,31 +347,17 @@ def findNodeRequest(node,message_obj,conn): #this is for the first node
                 'keynum': keynum,
                 'node_num': getattr(node,'num')
             }
+
+            print('findNodeRequest: Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
+
             if ('predecessor' in message_obj):
                 msg['predecessor'] = getattr(node, 'myPredecessor')
+                # setattr(node, 'myPredecessor', keynum-1)
+
             serialized_message = pickle.dumps(msg, -1)
             conn.sendall(serialized_message)#send back to client(need to add clients socket)
             found = True
             break
-
-    # Optimization to check predecessor's keys for keynum
-    if (not found):
-        predKeys = getattr(node, 'myPredecessorKeys')
-        for i in range(len(predKeys)):
-            if (predKeys[i] == keynum):
-                # print("Found key at predecessor node!")
-                msg = {
-                    'source'  : "Node",
-                    'action'  : "Found Node with Key",
-                    'keynum': keynum,
-                    'node_num': getattr(node, 'myPredecessor')
-                }
-                if ('predecessor' in message_obj):
-                    msg['predecessor'] = getattr(node, 'myPredecessor')
-                serialized_message = pickle.dumps(msg, -1)
-                conn.sendall(serialized_message)#send back to client(need to add clients socket)
-                found = True
-                break
 
     # Else ask other nodes
     if (not found):
@@ -395,10 +382,10 @@ def findNodeRequest(node,message_obj,conn): #this is for the first node
             'nodes_visited': 1
         }
         if ('predecessor' in message_obj):
-            msg['predecessor'] = getattr(node, 'myPredecessor')
+            msg['predecessor'] = message_obj['predecessor']
 
         sendNode2NodeMessage(node, msg, queryNode)#sends message out to other node
-        # print("Forwarding find to " + str(queryNode))
+        print("findNodeRequest (" + str(getattr(node, 'num')) + "): Forwarding find to " + str(queryNode))
 
 
 def findNode2(node,message_obj):#this is for every other node
@@ -407,15 +394,19 @@ def findNode2(node,message_obj):#this is for every other node
     found = False
 
     # Check if already visited multiple nodes (i.e. key does not exist)
-    if (message_obj['nodes_visited'] > 20):
+    if (message_obj['nodes_visited'] > 30):
         msg = {
             'source': 'Node',
             'action': "Found Node with Key",
             'keynum': keynum,
             'node_num': -1
         }
+
+        print('Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
+
         if ('predecessor' in message_obj):
-            msg['predecessor'] = getattr(node, 'myPredecessor')
+            msg['predecessor'] = message_obj['predecessor']
+            # setattr(node, 'myPredecessor', keynum-1)
         sendNode2NodeMessage(node, msg, message_obj['sourcenode'])
     else:
         myKeys = getattr(node,'myKeys')
@@ -430,7 +421,10 @@ def findNode2(node,message_obj):#this is for every other node
                 if ('predecessor' in message_obj):
                     msg['predecessor'] = getattr(node, 'myPredecessor')
 
-                sendNode2NodeMessage(node,msg,message_obj['sourcenode'])#send message back to original noce
+                print('findNode2 (' + str(getattr(node, 'num')) + '): Found key at ' + str(getattr(node, 'num')) + ' with predecessor ' + str(getattr(node, 'myPredecessor')))
+
+                print('findNode2 (' + str(getattr(node, 'num')) + '): Sending key to ') + str(message_obj['sourcenode'])
+                sendNode2NodeMessage(node, msg, message_obj['sourcenode'])#send message back to original noce
                 found = True
                 break
 
@@ -441,7 +435,7 @@ def findNode2(node,message_obj):#this is for every other node
             queryNode = 999
             for i in range(len(myFingerTable)):#will be a sorted finger table
                 if (keynum <= myFingerTable[i] and myFingerTable[i] < queryNode):#might have to do stronger check
-                    print(str(keynum) + " is less than " + str(myFingerTable[i]))
+                    # print(str(keynum) + " is less than " + str(myFingerTable[i]))
                     queryNode = myFingerTable[i]#send find to this node
                 else:
                     break
@@ -456,10 +450,10 @@ def findNode2(node,message_obj):#this is for every other node
                 'nodes_visited': message_obj['nodes_visited'] + 1
             }
             if ('predecessor' in message_obj):
-                msg['predecessor'] = getattr(node, 'myPredecessor')
+                msg['predecessor'] = message_obj['predecessor']
 
             sendNode2NodeMessage(node,msg,queryNode)#send to query node
-            # print("Forwarding find to " + str(queryNode))
+            print('findNode2 (' + str(getattr(node, 'num')) + "): Forwarding find to " + str(queryNode))
 
 
 ''' ====== Implementing show ====== '''
@@ -549,39 +543,44 @@ def joinChordSystem(node):
 
     # print("joinChordSystem: Received response from node 0")
 
-    # print("Fingers are : " + str(getattr(response_node, 'myFingerTable')))
+    fingers = getattr(response_node, 'myFingerTable')
+    pred = getattr(response_node, 'myPredecessor')
+    # print("Response from node 0: \n\tFingers: " + str(fingers) + ', predecessor: ' + str(pred))
 
     setattr(node, 'myFingerTable', getattr(response_node, 'myFingerTable'))
     setattr(node, 'myPredecessor', getattr(response_node, 'myPredecessor'))
 
-    print("joinChordSystem: Node " + str(num) + ": Before updating others")
+    # print("joinChordSystem: Node " + str(num) + ": Before updating others")
+
+
     updateOthers(node)
 
     global go_go_go
-    print('Waiting')
     while (not go_go_go):
         cv.wait()
-    print('Done waiting')
     go_go_go = False
 
     moveKeys(node)
+    # print("joinChordSystem: Node " + str(num) + ": After updating others")
 
+    # Getting super successor
+    setSuperSuccessor(node)
+    setPredecessorSuperSuccessor(node)
+
+    cv.release()
+
+    # Send acknowledgment to client
     msg = {
             'source': 'Node',
             'action': 'Completed join',
             'num': getattr(node, 'num')
     }
-    # print(str(num) + ' responding to client: ' + str(msg))
+
     client_socket = getattr(node, 'client_socket')
     serialized_message = pickle.dumps(msg, -1)
     client_socket.sendall(serialized_message)
 
-    cv.release()
 
-    # print("joinChordSystem: Node " + str(num) + ": After updating others")
-
-    # Getting super successor
-    # setSuperSuccessor(node, num)
     # successor = getattr(node,'myFingerTable')[0]
     # msg = {
     #     'source' : "Node",
@@ -678,7 +677,7 @@ def join(cur_node, node, conn):
     initializeFingerTable(cur_node, node)
 
     fingers = getattr(node, 'myFingerTable')
-    # print("join: After initializing finger table: " + str(fingers))
+    print("join: After initializing finger table: " + str(fingers))
 
     temp = node
 
@@ -707,6 +706,7 @@ def initializeFingerTable(cur_node, node):
     # print("initializeFingerTable: Start")
     nodeFingerTable = getattr(node, 'myFingerTable')
     node_num = getattr(node, 'num')
+    cur_node_num = getattr(cur_node, 'num')
 
     # Set finger[0]
     finger_start = (node_num + 2**0) % (2**8)
@@ -719,26 +719,33 @@ def initializeFingerTable(cur_node, node):
         'action': 'Find key',
         'keynum': finger_start,
         'message': "fuck me",
-        'predecessor': None
+        'predecessor': -1
     }
 
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
-        s.connect(("127.0.0.1", getattr(cur_node, 'num') + 2000))
+        s.connect(("127.0.0.1", cur_node_num + 2000))
     except:
         print('Could not connect to socket!!!!!! :(')
 
     serialized_message = pickle.dumps(msg,-1)
     s.sendall(serialized_message)
+
+    # print('initializeFingerTable: Waiting for response!')
     data = s.recv(4096)
     response = pickle.loads(data)
-    s.close()
+
+    node_connections = getattr(cur_node, 'node_connections')
+    node_connections[cur_node_num].close()
+    node_connections.pop(cur_node_num, None)
+    setattr(cur_node, 'node_connections', node_connections)
 
     nodeFingerTable[0] = response['node_num']
-    # print("initializeFingerTable: Found successor = " + str(nodeFingerTable[0]))
+    print("initializeFingerTable: Found successor = " + str(nodeFingerTable[0]))
 
     # predecessor = successor.predecessor
+    # print('Returned predecessor is HOLLLALALALA: ' + str(response))
     setattr(node, 'myPredecessor', response['predecessor'])
 
     # successor.predecessor = n
