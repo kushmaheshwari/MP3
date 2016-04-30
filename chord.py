@@ -278,7 +278,11 @@ def readMessages(conn,node):
             elif (message_obj['action'] == 'Get Successor'):
                 returnSuccessor(node, conn, message_obj)
             elif (message_obj['action'] == 'Set super successor'):
+                # print('PREDECESSOR ' + str(num) + ': Setting super successor to : ' + str(message_obj))
                 setattr(node, 'superSuccessor', message_obj['successor'])
+                if (message_obj['depth'] == 0):
+                    setPredecessorSuperSuccessor(node, 1)
+
 
         # print("readMessages (" + str(getattr(node, 'num')) + ") has handled the request: " + str(message_obj))
 
@@ -319,13 +323,14 @@ def setSuperSuccessor(node):#send message to my new successor asking for his suc
     setattr(node, 'superSuccessor', response['successor'])
 
 
-def setPredecessorSuperSuccessor(node): #send message to my predecessor with my new successor so it can update its supersuccessor
+def setPredecessorSuperSuccessor(node, val): #send message to my predecessor with my new successor so it can update its supersuccessor
     successor = getattr(node,'myFingerTable')[0]
     predecessor = getattr(node,'myPredecessor')
     msg = {
         'source': "Node",
         'action': 'Set super successor',
-        'successor': successor
+        'successor': successor,
+        'depth': val,
     }
     sendNode2NodeMessage(node, msg, predecessor)
 
@@ -565,7 +570,7 @@ def joinChordSystem(node):
 
     # Getting super successor
     setSuperSuccessor(node)
-    setPredecessorSuperSuccessor(node)
+    setPredecessorSuperSuccessor(node, 0)
 
     cv.release()
 
