@@ -124,20 +124,23 @@ def setup_client():
                     }
                     socket = client_connections.get(node_num)
                     serialized_message = pickle.dumps(msg,-1)
-                    socket.sendall(serialized_message)
+                    try:
+                        socket.sendall(serialized_message)
+                        # print("Client waiting for response")
+                        data = socket.recv(4096)
+                        # print("Client received response")
+                        response = pickle.loads(data)
 
-                    # print("Client waiting for response")
-                    data = socket.recv(4096)
-                    # print("Client received response")
-                    response = pickle.loads(data)
+                        if (response['node_num'] != -1):
+                            print("Key " + str(keynum) + " found at Node " + str(response['node_num']))
+                        else:
+                            print("Key " + str(keynum) + " not found.")
+                    except:
+                        print('This node does not exist!')
 
-                    if (response['node_num'] != -1):
-                        print("Key " + str(keynum) + " found at Node " + str(response['node_num']))
-                    else:
-                        print("Key " + str(keynum) + " not found.")
                 # Clean crashes a node
                 elif(input_split[0] == "crash" and isDigit):
-                    print("Crashing node " + input_split[1])
+                    # print("Crashing node " + input_split[1])
                     msg = {
                         'source': "client",
                         'message': 'Crash',
@@ -314,7 +317,7 @@ def readMessages(conn,node):
         else: # message from node
 
             # Delay message
-            time.sleep(random.uniform(min_delay, max_delay))
+            # time.sleep(random.uniform(min_delay, max_delay))
 
             # print("readMessages: " + str(getattr(node, 'num')) + " received a message: " + message_obj['action'])
             # Set your predecessor to node
@@ -358,7 +361,8 @@ def readMessages(conn,node):
                     try:
                         node_socket.sendall(serialized_message)
                     except Exception, e:
-                        print(e)
+                        pass
+                        # print(e)
                 else:
                     client_socket = getattr(node, 'client_socket')
                     client_socket.sendall(serialized_message)
@@ -1033,6 +1037,7 @@ def sendHeartbeats(node):
             # print('Sent a heartbeat from ' + str(num) + ' to ' + str(successor))
         except:
             nodeHasCrashed(node)
+            print(str(successor) + ' has crashed!')
 
         node_connections = getattr(node, 'node_connections')
         try:
@@ -1067,8 +1072,10 @@ def receiveHeartbeat(node,message_obj,conn):
     conn.sendall(serialized_message)#send message back to predecessor saying alive
 
 def nodeHasCrashed(node):#finger tables, keys, predecessor keys
+
     cv.acquire()
     successor = getattr(node,'myFingerTable')[0]#this crashed
+
     # print(str(getattr(node, 'num')) + " thinks " + str(successor) + " crashed.")
     # print("Crashed Node: " + str(successor))
     setMyFingerTable(node)#updates my finger table so myFingerTable[0] equals new successor
@@ -1102,9 +1109,9 @@ def nodeHasCrashed(node):#finger tables, keys, predecessor keys
     }
     sendNode2NodeMessage(node,msg,successor)
 
-
-
     cv.release()
+
+    time.sleep(2)
 
     print("Crash has been handled.")
 
@@ -1282,7 +1289,10 @@ def sendNode2NodeMessage(node, msg, num):
     mutex.release()
 
     serialized_message = pickle.dumps(msg, -1)
-    node_connections[num].sendall(serialized_message)
+    try:
+        node_connections[num].sendall(serialized_message)
+    except:
+        pass
 
     setattr(node, 'node_connections', node_connections)
 
@@ -1350,7 +1360,7 @@ def parse_file():
             process_info = line.split()
             if (counter == 0):
                 global min_delay, max_delay
-                min_delay = int(process_info[0])/1000
+                min_delayelay = int(process_info[0])/1000
                 max_delay = int(process_info[1])/1000
             else:
                 port = int(process_info[0]) #FIXXX THISSS
